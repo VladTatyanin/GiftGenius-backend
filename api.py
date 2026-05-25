@@ -1,3 +1,5 @@
+import traceback
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -5,6 +7,7 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import uuid
 
+from db.database import DatabaseManager, init_db, close_db
 from rag.chain import get_rag_chain, clear_memory
 
 app = FastAPI(title="GiftGenius API", version="1.0.0")
@@ -36,9 +39,33 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: str
 
+class FavoriteRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    price: int = 0
+    interests: Optional[str] = None
+    recipient: Optional[str] = None
+    occasion: Optional[str] = None
 
-class ClearRequest(BaseModel):
-    session_id: str
+
+class FavoriteResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    price: int
+    created_at: str
+
+
+class SearchHistoryResponse(BaseModel):
+    id: int
+    question: str
+    recipient: Optional[str]
+    occasion: Optional[str]
+    interests: Optional[str]
+    budget_min: Optional[int]
+    budget_max: Optional[int]
+    created_at: str
+
 
 sessions = {}
 
@@ -64,6 +91,16 @@ def get_chain(session_id: str):
         }
     return sessions[session_id]["chain"]
 
+@app.on_event("startup")
+async def startup():
+    await init_db()
+    print("PostgreSQL database started")
+
+@app.on_event("shutdown")
+async def shutdown():
+    await close_db()
+    print("PostgreSQL database stopped")
+
 @app.get("/", response_model=HealthResponse)
 async def root():
     """Проверка работоспособности API"""
@@ -72,17 +109,6 @@ async def root():
         version="1.0.0",
         timestamp=datetime.now().isoformat()
     )
-
-
-@app.get("/health", response_model=HealthResponse)
-async def health():
-    """Health check для мониторинга"""
-    return HealthResponse(
-        status="ok",
-        version="1.0.0",
-        timestamp=datetime.now().isoformat()
-    )
-
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
@@ -104,8 +130,25 @@ async def generate(request: GenerateRequest):
         session_id = get_or_create_session(request.session_id)
         chain = get_chain(session_id)
 
+        # Получаем или создаем пользователя в БД
+        user = await DatabaseManager.get_or_create_user(session_id)
+
         # Генерируем идеи
         result = await chain.generate_gift_ideas(request.question)
+
+        # Сохраняем историю поиска в БД
+        await DatabaseManager.save_search(
+            user_id=user.id,
+            search_data={
+                "question": request.question,
+                "recipient": result["params"].get("recipient"),
+                "occasion": result["params"].get("occasion"),
+                "interests": result["params"].get("interests"),
+                "budget_min": result["params"].get("budget_min"),
+                "budget_max": result["params"].get("budget_max"),
+            },
+            answer=result["answer"]
+        )
 
         return GenerateResponse(
             success=True,
@@ -116,24 +159,125 @@ async def generate(request: GenerateRequest):
         )
 
     except Exception as e:
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/clear")
-async def clear(request: ClearRequest):
-    """
-    Очистка истории диалога для сессии
-    """
+@app.post("/favorite/{session_id}")
+async def add_favorite(session_id: str, request: FavoriteRequest):
+    """Добавить подарок в избранное"""
     try:
-        if request.session_id in sessions:
-            chain = sessions[request.session_id]["chain"]
-            chain.clear_memory()
-            return {"success": True, "message": "History cleared", "session_id": request.session_id}
-        else:
-            return {"success": True, "message": "Session not found", "session_id": request.session_id}
+        user = await DatabaseManager.get_or_create_user(session_id)
+
+        # Проверяем, нет ли уже такого подарка в избранном
+        if await DatabaseManager.is_favorite(user.id, request.name):
+            return {"success": False, "message": "Подарок уже в избранном"}
+
+        gift = await DatabaseManager.add_favorite(user.id, {
+            "name": request.name,
+            "description": request.description,
+            "price": request.price,
+            "interests": request.interests,
+            "recipient": request.recipient,
+            "occasion": request.occasion
+        })
+
+        return {
+            "success": True,
+            "message": "Подарок добавлен в избранное",
+            "favorite_id": gift.id
+        }
     except Exception as e:
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/favorites/{session_id}")
+async def get_favorites(session_id: str):
+    """Получить все избранные подарки пользователя"""
+    try:
+        user = await DatabaseManager.get_or_create_user(session_id)
+        favorites = await DatabaseManager.get_favorites(user.id)
+
+        return {
+            "success": True,
+            "favorites": [
+                {
+                    "id": f.id,
+                    "name": f.name,
+                    "description": f.description,
+                    "price": f.price,
+                    "interests": f.interests,
+                    "recipient": f.recipient,
+                    "occasion": f.occasion,
+                    "created_at": f.created_at.isoformat() if hasattr(f, 'created_at') else None
+                }
+                for f in favorites
+            ]
+        }
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/favorite/{session_id}/{gift_id}")
+async def remove_favorite(session_id: str, gift_id: int):
+    """Удалить подарок из избранного"""
+    try:
+        user = await DatabaseManager.get_or_create_user(session_id)
+        await DatabaseManager.remove_favorite(gift_id, user.id)
+
+        return {
+            "success": True,
+            "message": "Подарок удален из избранного"
+        }
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/history/{session_id}")
+async def get_search_history(session_id: str):
+    """Получить историю поиска пользователя"""
+    try:
+        user = await DatabaseManager.get_or_create_user(session_id)
+        history = await DatabaseManager.get_search_history(user.id)
+
+        return {
+            "success": True,
+            "history": [
+                {
+                    "id": h.id,
+                    "question": h.question,
+                    "recipient": h.recipient,
+                    "occasion": h.occasion,
+                    "interests": h.interests,
+                    "budget_min": h.budget_min,
+                    "budget_max": h.budget_max,
+                    "created_at": h.created_at.isoformat() if hasattr(h, 'created_at') else None
+                }
+                for h in history
+            ]
+        }
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/history/{session_id}")
+async def clear_search_history(session_id: str):
+    """Очистить историю поиска пользователя"""
+    try:
+        user = await DatabaseManager.get_or_create_user(session_id)
+        await DatabaseManager.clear_search_history(user.id)
+
+        return {
+            "success": True,
+            "message": "История поиска очищена",
+            "session_id": session_id
+        }
+    except Exception as e:
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/session/{session_id}")
 async def get_session_info(session_id: str):
@@ -157,6 +301,15 @@ async def delete_session(session_id: str):
         return {"success": True, "message": "Session deleted"}
     return {"success": False, "message": "Session not found"}
 
+@app.delete("/history/{session_id}")
+async def clear_history(session_id: str):
+    """Очистить историю поиска пользователя"""
+    try:
+        user = await DatabaseManager.get_or_create_user(session_id)
+        await DatabaseManager.clear_search_history(user.id)
+        return {"success": True, "message": "History cleared", "session_id": session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/stats")
 async def get_stats():

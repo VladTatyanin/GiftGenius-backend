@@ -17,5 +17,5 @@ def get_llm(api_key: str = None, temperature: float = 0.85, max_tokens_output: i
         }
     )
 
-    print(f"✅ Using OpenRouter model: {config.LLM_MODEL}")
+    print(f"Using OpenRouter model: {config.LLM_MODEL}")
     return llm

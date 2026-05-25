@@ -10,14 +10,10 @@ BASE_DIR = Path(__file__).parent
 TOKEN = os.getenv("OPENROUTER_TOKEN")
 
 # Модель — стабильные варианты
-LLM_MODEL = "inclusionai/ring-2.6-1t:free"
+LLM_MODEL = "baidu/cobuddy:free"
 
 # Настройки
 GENERATION_TEMPERATURE = 0.85
 MAX_TOKENS_OUTPUT = 1000
 MAX_CONVERSATION_HISTORY = 10
 MEMORY_KEY = "chat_history"
-
-# Маркетплейсы
-MARKETPLACES = ["ozon", "wildberries", "yandex_market"]
-DEFAULT_MARKETPLACE = "ozon"

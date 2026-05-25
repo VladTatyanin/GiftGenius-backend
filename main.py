@@ -4,9 +4,6 @@ from rag.chain import get_rag_chain, clear_memory
 async def main():
     chain = get_rag_chain(session_id="user_123", temperature=0.85)
 
-    print("\nGiftGenerator запущен!")
-    print("Команды: /clear - очистить историю, /exit - выйти\n")
-
     while True:
         question = input("\nЧто ищем? ")
 
