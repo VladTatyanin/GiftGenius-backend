@@ -136,6 +136,10 @@ async def generate(request: GenerateRequest):
         # Генерируем идеи
         result = await chain.generate_gift_ideas(request.question)
 
+        interests_value = result["params"].get("interests", [])
+        if isinstance(interests_value, list):
+            interests_value = ', '.join(interests_value)
+
         # Сохраняем историю поиска в БД
         await DatabaseManager.save_search(
             user_id=user.id,
@@ -143,7 +147,7 @@ async def generate(request: GenerateRequest):
                 "question": request.question,
                 "recipient": result["params"].get("recipient"),
                 "occasion": result["params"].get("occasion"),
-                "interests": result["params"].get("interests"),
+                "interests": interests_value,
                 "budget_min": result["params"].get("budget_min"),
                 "budget_max": result["params"].get("budget_max"),
             },

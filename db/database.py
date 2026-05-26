@@ -96,12 +96,15 @@ class DatabaseManager:
     async def save_search(user_id: str, search_data: dict, answer: str) -> SearchHistory:
         """Сохранить историю поиска"""
         async with AsyncSessionLocal() as db:
+            interests = search_data.get("interests")
+            if isinstance(interests, list):
+                interests = ", ".join(interests)
             history = SearchHistory(
                 user_id=user_id,
                 question=search_data.get("question"),
                 recipient=search_data.get("recipient"),
                 occasion=search_data.get("occasion"),
-                interests=search_data.get("interests"),
+                interests=interests,
                 budget_min=search_data.get("budget_min"),
                 budget_max=search_data.get("budget_max"),
                 answer=answer

@@ -9,8 +9,7 @@ BASE_DIR = Path(__file__).parent
 # API
 TOKEN = os.getenv("OPENROUTER_TOKEN")
 
-# Модель — стабильные варианты
-LLM_MODEL = "baidu/cobuddy:free"
+LLM_MODEL = "openrouter/owl-alpha"
 
 # Настройки
 GENERATION_TEMPERATURE = 0.85
