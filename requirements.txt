@@ -7,4 +7,4 @@ asyncpg
 langchain
 langchain-core
 langchain-openai
-psycopg2
+asyncpg
