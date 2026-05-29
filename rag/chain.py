@@ -137,7 +137,7 @@ class GiftGeneratorChain:
             }
 
         except Exception as e:
-            print(f"⚠️ JSON parsing failed: {e}, using regex fallback")
+            print(f"JSON parsing failed: {e}, using regex fallback")
             return self._extract_params_regex(question)
 
     def _extract_params_regex(self, question: str) -> Dict:
@@ -153,28 +153,10 @@ class GiftGeneratorChain:
         }
 
         # Бюджет
-        patterns = [
-            (r'до\s*(\d+)', 'max'),
-            (r'от\s*(\d+)', 'min'),
-            (r'(\d+)\s*-\s*(\d+)', 'range'),
-            (r'(\d+)\s*руб', 'approx')
-        ]
+        match = re.search(r'до\s*(\d+)', 'max')
+        if match:
+            params["budget_max"] = int(match.group(1))
 
-        for pattern, ptype in patterns:
-            match = re.search(pattern, q)
-            if match:
-                if ptype == 'max':
-                    params["budget_max"] = int(match.group(1))
-                elif ptype == 'min':
-                    params["budget_min"] = int(match.group(1))
-                elif ptype == 'range':
-                    params["budget_min"] = int(match.group(1))
-                    params["budget_max"] = int(match.group(2))
-                elif ptype == 'approx':
-                    val = int(match.group(1))
-                    params["budget_min"] = val
-                    params["budget_max"] = val
-                break
 
         # Получатель
         recipients = ["брат", "сестра", "мама", "папа", "друг", "подруга", "девушка", "парень", "жена", "муж",
